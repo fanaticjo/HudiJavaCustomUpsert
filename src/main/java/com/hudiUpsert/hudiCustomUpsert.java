@@ -1,6 +1,7 @@
 package com.hudiUpsert;
 
 import org.apache.avro.Schema;
+import org.apache.avro.Schema.Field;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
@@ -32,19 +33,30 @@ public class hudiCustomUpsert extends OverwriteWithLatestAvroPayload {
         }
     }
 
+    public boolean checkColumnExists(List<String> keys, Schema schema){
+        List<Field> field=schema.getFields();
+        List<Field> common=field.stream()
+                                      .filter(columns->keys.contains(columns.name()))
+                                      .collect(Collectors.toList());
+        return common.size()==keys.size()?true:false;
+    }
+
     @Override
     public Option<IndexedRecord> combineAndGetUpdateValue(IndexedRecord currentValue, Schema schema, Properties properties) throws IOException {
         GenericRecord existingRecord= (GenericRecord) currentValue;
         GenericRecord incomingRecord= (GenericRecord) getInsertValue(schema).get();
-        String update_key=properties.getProperty("hoodie.update.keys");
-        logger.info("the update keys are -"+update_key);
         try {
             List<String> keys=splitKeys(properties.getProperty("hoodie.update.keys"));
-            keys.forEach((key)->{
-                Object value=incomingRecord.get(key);
-                existingRecord.put(key,value);
-            });
-            return Option.of(existingRecord);
+            if (checkColumnExists(keys,schema)) {
+                keys.forEach((key) -> {
+                    Object value = incomingRecord.get(key);
+                    existingRecord.put(key, value);
+                });
+                return Option.of(existingRecord);
+            }
+            else{
+                throw new Exception("Update key not present please check the names");
+            }
         } catch (Exception e) {
             e.printStackTrace();
             return null;
